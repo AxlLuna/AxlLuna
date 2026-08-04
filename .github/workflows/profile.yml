@@ -1,0 +1,57 @@
+name: Redibujar el perfil
+
+on:
+  schedule:
+    # 13:00 UTC ≈ 6 am en Las Vegas (PDT). Una vez al día es suficiente:
+    # GitHub cachea las imágenes del README un buen rato de todos modos.
+    - cron: "0 13 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: profile
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Terminal e isométrico
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Terminal animada
+        # Para que los números incluyan tu trabajo en repos privados:
+        #   1. crea un PAT (classic) con el permiso `read:user`
+        #   2. guárdalo como secreto del repo con el nombre PROFILE_TOKEN
+        #   3. activa Settings → Profile → "Include private contributions"
+        # Sin PROFILE_TOKEN esto funciona igual, pero solo cuenta lo público.
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROFILE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: node scripts/build-terminal.mjs
+
+      - name: Contribuciones en isométrico
+        uses: yoshi389111/github-profile-3d-contrib@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROFILE_TOKEN || secrets.GITHUB_TOKEN }}
+          USERNAME: ${{ github.repository_owner }}
+          SETTING_JSON: assets/3d-contrib-tokyonight.json
+
+      - name: Guardar si algo cambió
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets profile-3d-contrib
+          if git diff --staged --quiet; then
+            echo "Sin cambios."
+          else
+            git commit -m "Redibujar el perfil"
+            git push
+          fi
