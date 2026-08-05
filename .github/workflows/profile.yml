@@ -5,9 +5,13 @@ on:
     # 13:00 UTC ≈ 6 am in Las Vegas (PDT). Once a day is plenty: GitHub
     # caches README images for a good while anyway.
     - cron: "0 13 * * *"
-  push:
-    branches: [main]
   workflow_dispatch:
+
+# Deliberately no `push` trigger. This workflow commits back to main, so
+# running it on push means every push you make spawns a bot commit on top
+# of it, and your next push is rejected until you pull. Regenerate locally
+# with `node scripts/build-terminal.mjs`, or run this by hand from the
+# Actions tab.
 
 permissions:
   contents: write
