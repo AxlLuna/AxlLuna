@@ -1,37 +1,43 @@
 #!/usr/bin/env node
 //
-// Genera la terminal animada del README como dos SVG autocontenidos
-// (tema claro y oscuro). Sin dependencias: solo Node 18+.
+// Builds the animated terminal for the profile README as two
+// self-contained SVGs (light and dark). No dependencies: Node 18+ only.
 //
 //   node scripts/build-terminal.mjs
 //
-// Con GITHUB_TOKEN usa la API GraphQL (más exacta, y puede incluir
-// contribuciones privadas). Sin token cae al calendario público, que
-// siempre está disponible pero solo cuenta actividad pública.
+// With GITHUB_TOKEN it uses the GraphQL API, which is exact and can
+// include private contributions. Without a token it falls back to the
+// public calendar, which always works but only counts public activity.
 
 import { writeFile, mkdir } from 'node:fs/promises';
 
 // ─────────────────────────────────────────────────────────────────────
-// Lo que dice la terminal. Esta es la parte que editas a mano.
+// What the terminal says. This is the part you edit by hand.
 // ─────────────────────────────────────────────────────────────────────
 
 const PROFILE = {
   login: 'AxlLuna',
-  host: 'urvenue',
+  // Optional hostname for the prompt. Leave empty for a bare `user ~ $`.
+  host: '',
   name: 'Axl Eduardo Guillen Luna',
-  tagline: 'Full-stack · plataformas para eventos y vida nocturna',
+  tagline: 'Full-stack engineer · event and nightlife platforms',
   stack: [
-    ['lenguaje', 'typescript · javascript'],
+    ['language', 'typescript · javascript'],
     ['runtime', 'node'],
-    ['dominio', 'geoespacial · chatbots · ticketing'],
-    ['enfoque', 'apis, integraciones y datos en tiempo real'],
+    ['domain', 'geospatial · chatbots · ticketing'],
+    ['focus', 'apis, integrations and real-time data'],
   ],
 };
 
-const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** The shell prompt, without the trailing `~ $`. */
+const USER = PROFILE.host
+  ? `${PROFILE.login.toLowerCase()}@${PROFILE.host}`
+  : PROFILE.login.toLowerCase();
 
 // ─────────────────────────────────────────────────────────────────────
-// Paletas Tokyo Night
+// Tokyo Night palettes
 // ─────────────────────────────────────────────────────────────────────
 
 const THEMES = {
@@ -68,36 +74,36 @@ const THEMES = {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Geometría. La terminal es monoespaciada, así que todo se calcula
-// a partir del avance de un caracter.
+// Geometry. The terminal is monospaced, so everything is derived from
+// the advance width of a single character.
 // ─────────────────────────────────────────────────────────────────────
 
-const W = 820;          // ancho total
-const CH = 7.8;         // avance de un caracter a 13px
-const FS = 13;          // tamaño de fuente
-const LH = 21;          // alto de línea
-const PAD_X = 24;       // margen interno horizontal
-const PAD_Y = 20;       // margen interno vertical
-const CHROME = 36;      // alto de la barra de título
-const GRAPH_H = 54;     // alto de las barras
-const AXIS_H = 16;      // alto del eje de meses
+const W = 820;          // total width
+const CH = 7.8;         // character advance at 13px
+const FS = 13;          // font size
+const LH = 21;          // line height
+const PAD_X = 24;       // horizontal inner padding
+const PAD_Y = 20;       // vertical inner padding
+const CHROME = 36;      // title bar height
+const GRAPH_H = 54;     // bar height
+const AXIS_H = 16;      // month axis height
 
 const FONT =
   "ui-monospace,SFMono-Regular,'SF Mono',Menlo,Monaco,Consolas," +
   "'DejaVu Sans Mono','Liberation Mono','Courier New',monospace";
 
-// Ritmo de la animación, en segundos.
+// Animation pacing, in seconds.
 const T = {
-  lead: 0.35,      // pausa antes de empezar a teclear
-  perChar: 0.032,  // velocidad de tecleo
-  enter: 0.34,     // pausa después de dar enter
-  perOut: 0.09,    // cada línea de salida
-  blank: 0.14,     // línea en blanco
-  perBar: 0.026,   // cada barra de la gráfica
+  lead: 0.35,      // pause before typing starts
+  perChar: 0.032,  // typing speed
+  enter: 0.34,     // pause after hitting enter
+  perOut: 0.09,    // each output line
+  blank: 0.14,     // blank line
+  perBar: 0.026,   // each bar of the graph
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Datos
+// Data
 // ─────────────────────────────────────────────────────────────────────
 
 const GQL = `query($login:String!){
@@ -156,11 +162,11 @@ async function fetchViaPublicHTML(login) {
   const res = await fetch(`https://github.com/users/${login}/contributions`, {
     headers: { 'User-Agent': 'build-terminal' },
   });
-  if (!res.ok) throw new Error(`calendario público HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`public calendar HTTP ${res.status}`);
   const html = await res.text();
 
-  // Cada día es un <td data-date="…" data-level="…" id="…">, y su conteo
-  // vive en el <tool-tip for="ese-id">.
+  // Each day is a <td data-date="…" data-level="…" id="…">, and its count
+  // lives in the matching <tool-tip for="that-id">.
   const counts = new Map();
   for (const m of html.matchAll(/<tool-tip[^>]*for="([^"]+)"[^>]*>([^<]*)<\/tool-tip>/g)) {
     const n = /^(\d+)\s+contribution/.exec(m[2].trim());
@@ -179,16 +185,16 @@ async function fetchViaPublicHTML(login) {
       level: Number(/data-level="(\d)"/.exec(tag)?.[1] ?? 0),
     });
   }
-  if (!days.length) throw new Error('no se pudo leer el calendario público');
+  if (!days.length) throw new Error('could not read the public calendar');
 
   days.sort((a, b) => a.date.localeCompare(b.date));
   const total = days.reduce((s, d) => s + d.count, 0);
-  return { days, total, commits: null, private: 0, source: 'público' };
+  return { days, total, commits: null, private: 0, source: 'public' };
 }
 
 /**
- * La racha más larga del periodo. Preferimos esta sobre la racha actual:
- * es igual de honesta y no depende de si hoy ya hubo commit.
+ * The longest streak in the period. Preferred over the current streak:
+ * just as honest, and it does not depend on whether today has a commit yet.
  */
 function bestStreak(days) {
   let best = 0;
@@ -200,7 +206,7 @@ function bestStreak(days) {
   return best;
 }
 
-/** Agrupa los días en semanas de domingo a sábado. */
+/** Groups days into Sunday-to-Saturday weeks. */
 function toWeeks(days) {
   const weeks = [];
   let week = null;
@@ -217,7 +223,7 @@ function toWeeks(days) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Construcción del SVG
+// SVG construction
 // ─────────────────────────────────────────────────────────────────────
 
 const esc = (s) =>
@@ -225,27 +231,38 @@ const esc = (s) =>
 
 const n = (v) => Math.round(v * 100) / 100;
 
-/** Acumula elementos y lleva la cuenta del tiempo y de la línea actual. */
+/** Collects elements while tracking the current time and line. */
 class Session {
   constructor(theme) {
     this.t = 0;
     this.theme = theme;
     this.parts = [];
     this.defs = [];
-    this.y = CHROME + PAD_Y + FS; // línea base de la primera línea
+    this.y = CHROME + PAD_Y + FS; // baseline of the first line
     this.clipId = 0;
   }
 
   get promptWidth() {
-    return `${PROFILE.login.toLowerCase()}@${PROFILE.host} ~ $ `.length * CH;
+    return `${USER} ~ $ `.length * CH;
   }
 
-  /** Una línea de comando: el prompt aparece y el comando se teclea. */
+  /** The prompt, as coloured tspans. */
+  prompt(y) {
+    const { theme } = this;
+    return (
+      `<text x="${PAD_X}" y="${n(y)}">` +
+      `<tspan fill="${theme.green}">${esc(USER)}</tspan>` +
+      `<tspan fill="${theme.dim}"> </tspan>` +
+      `<tspan fill="${theme.cyan}">~</tspan>` +
+      `<tspan fill="${theme.dim}"> $</tspan>` +
+      `</text>`
+    );
+  }
+
+  /** A command line: the prompt appears, then the command types itself. */
   command(cmd) {
     const { theme, y } = this;
-    const user = `${PROFILE.login.toLowerCase()}@${PROFILE.host}`;
-    const at = PAD_X;
-    const cmdX = at + this.promptWidth;
+    const cmdX = PAD_X + this.promptWidth;
     const cmdW = cmd.length * CH;
     const start = n(this.t + T.lead);
     const dur = n(Math.max(0.2, cmd.length * T.perChar));
@@ -258,23 +275,18 @@ class Session {
         `</rect></clipPath>`,
     );
 
-    // prompt
     this.parts.push(
       `<g opacity="0"><set attributeName="opacity" to="1" begin="${n(this.t)}s"/>` +
-        `<text x="${at}" y="${n(y)}">` +
-        `<tspan fill="${theme.green}">${esc(user)}</tspan>` +
-        `<tspan fill="${theme.dim}"> </tspan>` +
-        `<tspan fill="${theme.cyan}">~</tspan>` +
-        `<tspan fill="${theme.dim}"> $</tspan>` +
-        `</text></g>`,
+        this.prompt(y) +
+        `</g>`,
     );
 
-    // comando, revelado caracter por caracter
+    // the command, revealed character by character
     this.parts.push(
       `<g clip-path="url(#${id})"><text x="${n(cmdX)}" y="${n(y)}" fill="${theme.fg}">${esc(cmd)}</text></g>`,
     );
 
-    // cursor que acompaña al tecleo y desaparece al terminar
+    // cursor that rides along with the typing and switches off at the end
     this.parts.push(
       `<g opacity="0">` +
         `<set attributeName="opacity" to="1" begin="${start}s"/>` +
@@ -289,7 +301,7 @@ class Session {
     return this;
   }
 
-  /** Una línea de salida. `spans` es [[texto, color], …]. */
+  /** An output line. `spans` is [[text, colour], …]. */
   out(spans) {
     let x = PAD_X;
     const body = spans
@@ -314,7 +326,7 @@ class Session {
     return this;
   }
 
-  /** La gráfica: una barra por semana, creciendo de izquierda a derecha. */
+  /** The graph: one bar per week, growing from left to right. */
   graph(weeks) {
     const { theme } = this;
     const inner = W - PAD_X * 2;
@@ -326,7 +338,7 @@ class Session {
 
     weeks.forEach((week, i) => {
       const x = PAD_X + i * (bw + gap);
-      // Escala de raíz cuadrada: una sola semana pico no aplasta al resto.
+      // Square-root scale, so one peak week does not flatten all the others.
       const h = week.total === 0 ? 2.5 : Math.max(5, Math.sqrt(week.total / max) * GRAPH_H);
       const begin = n(start + i * T.perBar);
       this.parts.push(
@@ -337,20 +349,20 @@ class Session {
       );
     });
 
-    // eje: la abreviatura del mes en la semana donde empieza
+    // axis: the month abbreviation on the week where it starts
     const axisY = base + AXIS_H;
     let last = -1;
     weeks.forEach((week, i) => {
       const month = new Date(`${week.start}T00:00:00Z`).getUTCMonth();
       if (month === last) return;
       last = month;
-      // El último mes se repite con el primero al cerrar el año: lo omitimos
-      // si ya casi no quedan semanas para dibujarlo.
+      // The last month repeats the first one as the year closes, so we drop
+      // it when there is barely any room left to draw it.
       if (weeks.length - i < 3) return;
       const x = PAD_X + i * (bw + gap);
       this.parts.push(
         `<g opacity="0"><set attributeName="opacity" to="1" begin="${n(start + i * T.perBar)}s"/>` +
-          `<text x="${n(x)}" y="${n(axisY)}" font-size="10" fill="${theme.dim}">${MESES[month]}</text></g>`,
+          `<text x="${n(x)}" y="${n(axisY)}" font-size="10" fill="${theme.dim}">${MONTHS[month]}</text></g>`,
       );
     });
 
@@ -359,18 +371,12 @@ class Session {
     return this;
   }
 
-  /** El cursor final, que se queda latiendo. */
+  /** The final cursor, left blinking. */
   idle() {
     const { theme, y } = this;
-    const user = `${PROFILE.login.toLowerCase()}@${PROFILE.host}`;
     this.parts.push(
       `<g opacity="0"><set attributeName="opacity" to="1" begin="${n(this.t)}s"/>` +
-        `<text x="${PAD_X}" y="${n(y)}">` +
-        `<tspan fill="${theme.green}">${esc(user)}</tspan>` +
-        `<tspan fill="${theme.dim}"> </tspan>` +
-        `<tspan fill="${theme.cyan}">~</tspan>` +
-        `<tspan fill="${theme.dim}"> $</tspan>` +
-        `</text>` +
+        this.prompt(y) +
         `<rect class="cursor" x="${n(PAD_X + this.promptWidth)}" y="${n(y - FS + 2)}" ` +
         `width="${n(CH)}" height="${FS + 2}" fill="${theme.purple}"/>` +
         `</g>`,
@@ -387,7 +393,7 @@ class Session {
       .map((c, i) => `<circle cx="${20 + i * 17}" cy="${CHROME / 2}" r="5.5" fill="${c}"/>`)
       .join('');
 
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}" font-size="${FS}" role="img" aria-label="Terminal con el perfil y las contribuciones de ${esc(PROFILE.name)}">
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}" font-size="${FS}" role="img" aria-label="Terminal showing the profile and contribution history of ${esc(PROFILE.name)}">
 <title>${esc(PROFILE.name)} — ${esc(PROFILE.tagline)}</title>
 <style>
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
@@ -412,7 +418,7 @@ ${this.parts.join('\n')}
 function buildSVG(theme, data) {
   const { total, streak, active, weeks } = data;
   const s = new Session(theme);
-  const nf = new Intl.NumberFormat('es-MX');
+  const nf = new Intl.NumberFormat('en-US');
 
   s.command('whoami')
     .out([[PROFILE.name, theme.fg]])
@@ -432,12 +438,12 @@ function buildSVG(theme, data) {
 
   s.command('gh contrib --summary').out([
     [nf.format(total), theme.yellow],
-    [' contribuciones   ', theme.dim],
+    [' contributions   ', theme.dim],
     [String(active), theme.yellow],
-    [' días activos   ', theme.dim],
-    ['mejor racha ', theme.dim],
+    [' active days   ', theme.dim],
+    ['best streak ', theme.dim],
     [String(streak), theme.yellow],
-    [streak === 1 ? ' día' : ' días', theme.dim],
+    [streak === 1 ? ' day' : ' days', theme.dim],
   ]);
   s.blank();
 
@@ -455,7 +461,7 @@ async function main() {
   if (token) {
     raw = await fetchViaGraphQL(PROFILE.login, token);
   } else {
-    console.warn('· sin GITHUB_TOKEN: uso el calendario público (solo actividad pública)');
+    console.warn('· no GITHUB_TOKEN: using the public calendar (public activity only)');
     raw = await fetchViaPublicHTML(PROFILE.login);
   }
 
@@ -474,8 +480,8 @@ async function main() {
   }
 
   console.log(
-    `  fuente: ${data.source} · ${data.total} contribuciones · ` +
-      `${data.active} días activos · mejor racha ${data.streak} · ${data.weeks.length} semanas`,
+    `  source: ${data.source} · ${data.total} contributions · ` +
+      `${data.active} active days · best streak ${data.streak} · ${data.weeks.length} weeks`,
   );
 }
 
